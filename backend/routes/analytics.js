@@ -10,24 +10,32 @@ router.get('/metrics/overview', async (req, res) => {
     
     const calls = await Call.find({ 'scores.overallScore': { $exists: true } });
     
+    if (calls.length === 0) {
+      return res.json({
+        totalCalls,
+        scoredCalls,
+        avgScore: "0.0",
+        flaggedPct: "0.0",
+        avgDuration: "0.0",
+        avgAgentTalkPct: "0.0",
+        flaggedCalls: 0
+      });
+    }
+    
     // Calculate averages
-    const avgScore = calls.length > 0 
-      ? calls.reduce((sum, c) => sum + (c.scores?.overallScore || 0), 0) / calls.length 
-      : 0;
+    const avgScore = calls.reduce((sum, c) => sum + (c.scores?.overallScore || 0), 0) / calls.length;
     
     const flaggedCalls = calls.filter(c => c.scores?.flags?.length > 0).length;
-    const flaggedPct = calls.length > 0 ? ((flaggedCalls / calls.length) * 100).toFixed(1) : 0;
+    const flaggedPct = ((flaggedCalls / calls.length) * 100).toFixed(1);
     
     const totalDuration = calls.reduce((sum, c) => sum + (c.metrics?.totalDuration || 0), 0);
-    const avgDuration = calls.length > 0 ? (totalDuration / calls.length).toFixed(1) : 0;
+    const avgDuration = (totalDuration / calls.length).toFixed(1);
     
-    const avgAgentTalk = calls.length > 0
-      ? calls.reduce((sum, c) => {
-          const agentSec = c.metrics?.agentSeconds || 0;
-          const total = c.metrics?.totalDuration || 1;
-          return sum + ((agentSec / total) * 100);
-        }, 0) / calls.length
-      : 0;
+    const avgAgentTalk = calls.reduce((sum, c) => {
+      const agentSec = c.metrics?.agentSeconds || 0;
+      const total = c.metrics?.totalDuration || 1;
+      return sum + ((agentSec / total) * 100);
+    }, 0) / calls.length;
 
     res.json({
       totalCalls,
@@ -48,6 +56,10 @@ router.get('/metrics/overview', async (req, res) => {
 router.get('/agents/leaderboard', async (req, res) => {
   try {
     const calls = await Call.find({ 'scores.overallScore': { $exists: true } });
+    
+    if (calls.length === 0) {
+      return res.json([]);
+    }
     
     // Group by agent
     const agentStats = {};
@@ -89,7 +101,7 @@ router.get('/agents/leaderboard', async (req, res) => {
   }
 });
 
-// Get trend data (daily scores for last 7/30 days)
+// Get trend data (daily scores for last N days)
 router.get('/trends/scores', async (req, res) => {
   try {
     const { days = 7 } = req.query;
@@ -100,6 +112,10 @@ router.get('/trends/scores', async (req, res) => {
       createdAt: { $gte: daysAgo },
       'scores.overallScore': { $exists: true }
     }).sort({ createdAt: 1 });
+    
+    if (calls.length === 0) {
+      return res.json([]);
+    }
     
     // Group by date
     const trendData = {};
@@ -159,6 +175,47 @@ router.get('/distribution/scores', async (req, res) => {
   } catch (error) {
     console.error('Error fetching distribution:', error);
     res.status(500).json({ error: 'Failed to fetch distribution' });
+  }
+});
+
+// Get agent-specific analytics
+router.get('/agents/:agentId/stats', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const calls = await Call.find({ 
+      agentId, 
+      'scores.overallScore': { $exists: true } 
+    });
+    
+    if (calls.length === 0) {
+      return res.json({
+        agentId,
+        totalCalls: 0,
+        avgScore: "0.0",
+        flaggedPct: "0.0",
+        avgDuration: "0.0"
+      });
+    }
+    
+    const totalScore = calls.reduce((sum, c) => sum + (c.scores?.overallScore || 0), 0);
+    const flaggedCalls = calls.filter(c => c.scores?.flags?.length > 0).length;
+    const totalDuration = calls.reduce((sum, c) => sum + (c.metrics?.totalDuration || 0), 0);
+    
+    res.json({
+      agentId,
+      totalCalls: calls.length,
+      avgScore: (totalScore / calls.length).toFixed(1),
+      flaggedPct: ((flaggedCalls / calls.length) * 100).toFixed(1),
+      avgDuration: (totalDuration / calls.length).toFixed(1),
+      recentCalls: calls.slice(0, 5).map(c => ({
+        callId: c.callId,
+        score: c.scores?.overallScore,
+        date: c.createdAt
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching agent stats:', error);
+    res.status(500).json({ error: 'Failed to fetch agent stats' });
   }
 });
 
