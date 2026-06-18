@@ -53,7 +53,7 @@ app.post("/api/uploads", upload.single("audioFile"), async (req, res) => {
   try {
     const { callId = `call_${Date.now()}`, agentId = "agent-001" } = req.body;
     const filename = req.file.filename;
-    const audioUrl = filename;
+    const audioUrl = req.file.path;
 
     console.log(`\n${'='.repeat(60)}`);
     console.log(`📞 NEW CALL: ${callId}`);

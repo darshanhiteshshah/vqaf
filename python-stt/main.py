@@ -10,6 +10,7 @@ from pathlib import Path
 import warnings
 from dotenv import load_dotenv
 import torch
+import traceback
 
 warnings.filterwarnings("ignore")
 load_dotenv()
@@ -34,58 +35,136 @@ try:
     print(f"🔄 Loading ML diarization (PyTorch {torch.__version__})...")
     diarization_pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
-        use_auth_token=HF_TOKEN
+        token=HF_TOKEN
     )
     diarization_pipeline.to(torch.device("cpu"))
     print("✅ ML Diarization ENABLED!")
-except Exception as e:
-    diarization_pipeline = None
-    print(f"⚠️ ML Diarization failed: {str(e)}")
-    print("📝 Using enhanced energy fallback")
+# except Exception as e:
+#     diarization_pipeline = None
+#     print(f"⚠️ ML Diarization failed: {str(e)}")
+#     print("📝 Using enhanced energy fallback")
+except Exception:
+    print("⚠️ ML Diarization failed:")
+    traceback.print_exc()
+
+
+
 
 def assign_speakers_short_ml(audio_path, segments, audio, sr):
-    """ML diarization for calls <2min (95% accuracy)"""
+    """ML diarization for calls <2min (Improved Version)"""
+
     try:
         print("🧠 Running ML diarization...")
-        diarization = diarization_pipeline(str(audio_path))
+
+        waveform = torch.tensor(audio).unsqueeze(0)
+
+        diarization = diarization_pipeline({
+            "waveform": waveform,
+            "sample_rate": sr
+        })
+
+        annotation = diarization.speaker_diarization
 
         speaker_timeline = []
-        for turn, _, speaker in diarization.itertracks(yield_label=True):
+
+        for turn, _, speaker in annotation.itertracks(yield_label=True):
             speaker_timeline.append({
-                "start": float(turn.start), 
-                "end": float(turn.end), 
+                "start": float(turn.start),
+                "end": float(turn.end),
                 "speaker": speaker
             })
 
-        # Map speakers by talk time
-        speaker_times = {}
-        for item in speaker_timeline:
-            spk = item["speaker"]
-            speaker_times[spk] = speaker_times.get(spk, 0) + (item["end"] - item["start"])
+        print("Detected speakers:")
+        print(speaker_timeline[:10])
 
-        sorted_speakers = sorted(speaker_times.items(), key=lambda x: x[1], reverse=True)
-        speaker_map = {sorted_speakers[0][0]: "AGENT"}
-        if len(sorted_speakers) > 1:
-            speaker_map[sorted_speakers[1][0]] = "CUSTOMER"
+        if len(speaker_timeline) == 0:
+            raise Exception("No speakers detected")
+
+        # Calculate speaker durations
+        speaker_times = {}
+
+        for item in speaker_timeline:
+            speaker = item["speaker"]
+            duration = item["end"] - item["start"]
+
+            if speaker not in speaker_times:
+                speaker_times[speaker] = 0.0
+
+            speaker_times[speaker] += duration
+
+        print("Speaker durations:")
+        for speaker, duration in speaker_times.items():
+            print(f"{speaker}: {duration:.1f}s")
+
+        # Longest speaker = Agent
+        agent_speaker = max(
+            speaker_times,
+            key=speaker_times.get
+        )
+
+        speaker_map = {}
+
+        for speaker in speaker_times:
+            if speaker == agent_speaker:
+                speaker_map[speaker] = "AGENT"
+            else:
+                speaker_map[speaker] = "CUSTOMER"
+
+        print("Speaker map:")
+        print(speaker_map)
 
         transcript = []
-        agent_seconds = customer_seconds = 0.0
+
+        agent_seconds = 0.0
+        customer_seconds = 0.0
+
+        matched_segments = 0
+        unmatched_segments = 0
 
         for segment in segments:
+
             text = segment.text.strip()
-            if not text: 
+
+            if not text:
                 continue
 
             start = float(segment.start)
             end = float(segment.end)
+
             mid_time = (start + end) / 2
             seg_duration = end - start
 
-            speaker_label = "AGENT"
+            speaker_label = None
+
+            # Exact overlap search
             for item in speaker_timeline:
+
                 if item["start"] <= mid_time <= item["end"]:
-                    speaker_label = speaker_map.get(item["speaker"], "AGENT")
+
+                    speaker_label = speaker_map.get(
+                        item["speaker"],
+                        "CUSTOMER"
+                    )
+
+                    matched_segments += 1
                     break
+
+            # Nearest speaker fallback
+            if speaker_label is None:
+
+                unmatched_segments += 1
+
+                nearest = min(
+                    speaker_timeline,
+                    key=lambda x: abs(
+                        ((x["start"] + x["end"]) / 2) - mid_time
+                    )
+                )
+
+                speaker_label = speaker_map.get(
+                    nearest["speaker"],
+                    "CUSTOMER"
+                )
 
             transcript.append({
                 "start": start,
@@ -100,11 +179,30 @@ def assign_speakers_short_ml(audio_path, segments, audio, sr):
             else:
                 customer_seconds += seg_duration
 
-        return transcript, float(agent_seconds), float(customer_seconds)
-        
+        print(f"Matched segments: {matched_segments}")
+        print(f"Nearest-assigned segments: {unmatched_segments}")
+
+        print(
+            f"✅ ML diarization successful | "
+            f"Agent: {agent_seconds:.1f}s | "
+            f"Customer: {customer_seconds:.1f}s"
+        )
+
+        return (
+            transcript,
+            float(agent_seconds),
+            float(customer_seconds)
+        )
+
     except Exception as e:
-        print(f"⚠️ ML error: {e}")
-        return assign_speakers_long_enhanced(segments, audio, sr)
+        print(f"❌ ML Diarization failed: {e}")
+        traceback.print_exc()
+
+        return assign_speakers_long_enhanced(
+            segments,
+            audio,
+            sr
+        )  
 
 def assign_speakers_long_enhanced(segments, audio, sr):
     """Enhanced energy for long calls (93% accuracy, JSON-safe)"""
@@ -155,9 +253,9 @@ def assign_speakers_long_enhanced(segments, audio, sr):
 async def transcribe(request: TranscribeRequest):
     try:
         print(f"🎤 Transcribing {request.callId}: {request.audio_url}")
-        audio_path = Path("../uploads") / request.audio_url
+        audio_path = Path(request.audio_url)
         if not audio_path.exists():
-            raise HTTPException(404, f"Audio not found: {audio_path}")
+            raise HTTPException(400, f"Audio file not found: {request.audio_url}")
 
         # Load audio
         audio, sr = librosa.load(str(audio_path), sr=16000)
