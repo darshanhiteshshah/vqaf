@@ -78,7 +78,7 @@ export default function MainPage() {
 
       console.log('Uploading file:', file.name);
 
-      const res = await axios.post('http://localhost:3001/api/uploads', formData, {
+      const res = await axios.post('http://localhost:5000/api/uploads', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (progressEvent) => {
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
