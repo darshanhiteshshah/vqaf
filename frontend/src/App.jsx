@@ -4,6 +4,7 @@ import MainPage from './pages/MainPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import CallDetailPage from './pages/CallDetailPage';
 import HistoryPage from './pages/HistoryPage';
+import SearchPage from './pages/SearchPage';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('main'); // 'main', 'analytics', 'detail', 'history'
@@ -25,6 +26,7 @@ export default function App() {
       
       {currentView === 'main' && <MainPage onCallSelect={handleCallSelect} />}
       {currentView === 'analytics' && <AnalyticsPage />}
+      {currentView === 'search' && <SearchPage onCallSelect={handleCallSelect} />}
       {currentView === 'detail' && <CallDetailPage callId={selectedCallId} />}
       {currentView === 'history' && <HistoryPage onCallSelect={handleCallSelect} />}
     </div>

@@ -123,15 +123,43 @@ async def score_call(request: ScoreRequest):
             print(f"⚠️ Gemini failed: {e}")
             gemini_result = {}
 
-        try:
-            embedding = get_embedding(full_transcript)
+        search_text = f"""
+Transcript:
+{full_transcript}
 
-            print(f"Embedding generated: {len(embedding)} dimensions")
+Category:
+{gemini_result.get("category", "")}
+
+Sentiment:
+{gemini_result.get("sentiment", "")}
+
+Summary:
+{gemini_result.get("summary", "")}
+
+Critical Issues:
+{" ".join(gemini_result.get("criticalIssues", []))}
+
+Weaknesses:
+{" ".join(gemini_result.get("weaknesses", []))}
+"""
+
+        try:
+
+            embedding = get_embedding(
+                search_text
+            )
+
+            print(
+                f"🔍 Embedding generated: {len(embedding)} dimensions"
+            )
 
         except Exception as e:
-            print(f"embedding generation failed: {e}")
 
-            embedding = []        
+            print(
+                f"⚠️ Embedding failed: {e}"
+            )
+
+            embedding = []
 
         print(f"📊 Agent segments: {len(agent_segments)} | Customer segments: {len(customer_segments)}")
         
@@ -259,12 +287,12 @@ async def score_call(request: ScoreRequest):
             "summary": gemini_result.get("summary", ""),
             "criticalIssues": gemini_result.get("criticalIssues", []),
             "fullTranscript": full_transcript,
+            "searchText": search_text,
             "embedding": embedding,
             "actionItems": gemini_result.get("actionItems", []),
             "strengths": gemini_result.get("strengths", []),
             "weaknesses": gemini_result.get("weaknesses", []),
             "coaching": gemini_result.get("coaching", []),
-            "fullTranscript": full_transcript,
             "flags": flags,
             "status": "scored"
         }

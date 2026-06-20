@@ -86,6 +86,7 @@ const CallSchema = new mongoose.Schema(
     sentimentScore: Number,
     criticalIssues: [String],
     fullTranscript: String,
+    searchText: String,
     embedding: [Number],
     summary: String,
 

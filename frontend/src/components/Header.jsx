@@ -1,4 +1,4 @@
-import { Headphones, BarChart3, Home, Clock, ArrowLeft } from 'lucide-react';
+import { Headphones, BarChart3, Home, Clock, ArrowLeft, Search } from 'lucide-react';
 
 function cx(...classes) {
   return classes.filter(Boolean).join(' ');
@@ -52,6 +52,19 @@ export default function Header({ currentView, onNavigate }) {
           >
             <BarChart3 className="h-4 w-4" />
             Analytics
+          </button>
+
+          <button
+            onClick={() => onNavigate('search')}
+            className={cx(
+              'px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all border',
+              currentView === 'search'
+                ? 'bg-red-600 border-red-500 text-white'
+                : 'bg-gray-900 border-gray-800 text-gray-400 hover:border-red-900/50'
+            )}
+          >
+            <Search className="h-4 w-4" />
+            Search
           </button>
 
           <button

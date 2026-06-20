@@ -30,10 +30,34 @@ router.post("/", async (req, res) => {
     });
 
     const results = calls.map((call) => {
-      const similarity = cosineSimilarity(
+      let similarity = cosineSimilarity(
         queryEmbedding,
         call.scores.embedding
       );
+      similarity = Number.isFinite(similarity) ? similarity : 0;
+
+      const queryLower = query.toLowerCase();
+      let bonus = 0;
+
+      const searchText = `
+${call.scores.category || ""}
+${call.scores.sentiment || ""}
+${call.scores.summary || ""}
+${(call.scores.criticalIssues || []).join(" ")}
+${(call.scores.weaknesses || []).join(" ")}
+`.toLowerCase();
+
+      if (searchText.includes(queryLower)) {
+        bonus += 0.3;
+      }
+
+      queryLower.split(" ").forEach((word) => {
+        if (word.length > 3 && searchText.includes(word)) {
+          bonus += 0.05;
+        }
+      });
+
+      similarity = Math.min(1, similarity + bonus);
 
       return {
         callId: call.callId,
