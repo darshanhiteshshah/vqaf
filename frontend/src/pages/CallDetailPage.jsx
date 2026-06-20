@@ -244,7 +244,7 @@ export default function CallDetailPage({ callId }) {
       )}
 
       {/* Score Breakdown */}
-      {(scores.greetingScore !== undefined || scores.clarityScore !== undefined) && (
+      {(scores.greeting !== undefined || scores.clarity !== undefined) && (
         <div className="bg-gray-950 border border-red-900/20 rounded-xl overflow-hidden">
           <button
             onClick={() => setShowScoreBreakdown(!showScoreBreakdown)}
@@ -260,10 +260,10 @@ export default function CallDetailPage({ callId }) {
           {showScoreBreakdown && (
             <div className="px-6 pb-6 space-y-4">
               {[
-                { key: 'greetingScore', label: 'Greeting & Opening', icon: MessageSquare },
-                { key: 'clarityScore', label: 'Clarity & Communication', icon: Volume2 },
-                { key: 'resolutionScore', label: 'Problem Resolution', icon: CheckCircle },
-                { key: 'professionalismScore', label: 'Professionalism', icon: Award },
+                { key: 'greeting', label: 'Greeting & Opening', icon: MessageSquare },
+                { key: 'clarity', label: 'Clarity & Communication', icon: Volume2 },
+                { key: 'resolution', label: 'Problem Resolution', icon: CheckCircle },
+                { key: 'professionalism', label: 'Professionalism', icon: Award },
               ].map(({ key, label, icon: Icon }) => {
                 const score = scores[key];
                 if (score === undefined) return null;
@@ -299,6 +299,110 @@ export default function CallDetailPage({ callId }) {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* AI Insights */}
+      {(scores.summary || scores.actionItems?.length > 0 || scores.strengths?.length > 0 || scores.weaknesses?.length > 0 || scores.coaching?.length > 0 || scores.criticalIssues?.length > 0 || scores.category || scores.sentiment) && (
+        <div className="bg-gray-950 border border-red-900/20 rounded-xl overflow-hidden">
+          <div className="px-6 py-5 border-b border-gray-800 flex items-center gap-3">
+            <FileText className="h-5 w-5 text-red-400" />
+            <h3 className="text-lg font-bold text-white">AI Insights</h3>
+          </div>
+          <div className="px-6 pb-6 pt-5 space-y-6">
+            <div className="grid gap-4 md:grid-cols-2">
+              {scores.category && (
+                <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+                  <h4 className="text-sm uppercase tracking-wide text-gray-400 font-semibold mb-3">Category</h4>
+                  <div className="text-lg font-bold text-white">{scores.category}</div>
+                </div>
+              )}
+              {scores.sentiment && (
+                <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+                  <h4 className="text-sm uppercase tracking-wide text-gray-400 font-semibold mb-3">Sentiment</h4>
+                  <div className="text-lg font-bold text-white">{scores.sentiment}</div>
+                  <div className="text-xs text-gray-400 mt-1">Score: {scores.sentimentScore?.toFixed ? scores.sentimentScore.toFixed(1) : scores.sentimentScore}</div>
+                </div>
+              )}
+            </div>
+
+            {scores.criticalIssues?.length > 0 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+                <h4 className="text-sm uppercase tracking-wide text-gray-400 font-semibold mb-3">Critical Issues</h4>
+                <ul className="space-y-2 text-sm text-gray-200">
+                  {scores.criticalIssues.map((issue, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="text-red-400">🚨</span>
+                      <span>{issue}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {scores.summary && (
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+                <h4 className="text-sm uppercase tracking-wide text-gray-400 font-semibold mb-3">Call Summary</h4>
+                <p className="text-sm text-gray-200 whitespace-pre-line">{scores.summary}</p>
+              </div>
+            )}
+
+            {scores.actionItems?.length > 0 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+                <h4 className="text-sm uppercase tracking-wide text-gray-400 font-semibold mb-3">Action Items</h4>
+                <ul className="space-y-2 text-sm text-gray-200">
+                  {scores.actionItems.map((item, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="text-red-400">•</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {scores.strengths?.length > 0 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+                <h4 className="text-sm uppercase tracking-wide text-gray-400 font-semibold mb-3">Strengths</h4>
+                <ul className="space-y-2 text-sm text-gray-200">
+                  {scores.strengths.map((item, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="text-green-400">✓</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {scores.weaknesses?.length > 0 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+                <h4 className="text-sm uppercase tracking-wide text-gray-400 font-semibold mb-3">Areas for Improvement</h4>
+                <ul className="space-y-2 text-sm text-gray-200">
+                  {scores.weaknesses.map((item, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="text-yellow-400">⚠</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {scores.coaching?.length > 0 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
+                <h4 className="text-sm uppercase tracking-wide text-gray-400 font-semibold mb-3">Coaching Recommendations</h4>
+                <ul className="space-y-2 text-sm text-gray-200">
+                  {scores.coaching.map((item, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="text-blue-400">💡</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

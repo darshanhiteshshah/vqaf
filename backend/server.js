@@ -13,6 +13,7 @@ const app = express();
 const Call = require('./models/call');
 const callsRoutes = require('./routes/calls');
 const analyticsRoutes = require('./routes/analytics');
+const searchRoutes = require('./routes/searchRoutes');
 
 // Shared uploads dir at repo root
 const uploadDir = path.resolve(__dirname, "../uploads");
@@ -34,6 +35,7 @@ mongoose
 // Register routes
 app.use('/api/calls', callsRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/search', searchRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from typing import List, Dict, Any
 import re
 from datetime import datetime
+from gemini_evaluator import evaluate_call
+from embedding_service import get_embedding
 
 app = FastAPI()
 
@@ -11,6 +13,10 @@ class ScoreRequest(BaseModel):
     metrics: Dict[str, Any]
     callId: str
     agentId: str
+
+class SearchRequest(BaseModel):
+    query: str
+
 
 def analyze_agent_quality(agent_text: str) -> Dict[str, float]:
     """Detailed agent speech analysis"""
@@ -67,6 +73,20 @@ def analyze_customer_sentiment(customer_text: str) -> Dict[str, Any]:
         "negativeWords": len(negative)
     }
 
+
+def safe_score(value, default=80):
+    try:
+        value = float(value)
+
+        # Gemini sometimes returns 1-5 ratings
+        if 0 < value <= 5:
+            return round(value * 20, 1)
+
+        return round(max(0, min(100, value)), 1)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 @app.post("/score")
 async def score_call(request: ScoreRequest):
     try:
@@ -81,7 +101,38 @@ async def score_call(request: ScoreRequest):
         
         agent_text = " ".join([s.get("text", "") for s in agent_segments])
         customer_text = " ".join([s.get("text", "") for s in customer_segments])
-        
+        conversation=""
+        full_transcript=""
+        for seg in request.transcript:
+            speaker = seg.get("speaker", "UNKNOWN")
+            text = seg.get("text", "")
+            conversation += f"{speaker}: {text}\n"
+
+            full_transcript += (
+                f"{speaker}: {text}\n"
+            )
+
+        try:
+            gemini_result = evaluate_call(full_transcript)
+
+            print("\n🧠 GEMINI RESPONSE:")
+            print(gemini_result)
+            print()
+
+        except Exception as e:
+            print(f"⚠️ Gemini failed: {e}")
+            gemini_result = {}
+
+        try:
+            embedding = get_embedding(full_transcript)
+
+            print(f"Embedding generated: {len(embedding)} dimensions")
+
+        except Exception as e:
+            print(f"embedding generation failed: {e}")
+
+            embedding = []        
+
         print(f"📊 Agent segments: {len(agent_segments)} | Customer segments: {len(customer_segments)}")
         
         # Analyze agent performance
@@ -91,9 +142,23 @@ async def score_call(request: ScoreRequest):
         customer_sentiment = analyze_customer_sentiment(customer_text)
         
         # FIX: Get metrics with correct key names
-        total_duration = float(request.metrics.get("totalDuration") or request.metrics.get("duration") or 1)
-        agent_talk_time = float(request.metrics.get("agentSeconds", 0))
-        customer_talk_time = float(request.metrics.get("customerSeconds", 0))
+        total_duration=float(
+            request.metrics.get("total_duration")
+            or request.metrics.get("totalDuration")
+            or request.metrics.get("duration")
+            or 0
+        )
+        agent_talk_time = float(
+            request.metrics.get("agent_speaking_time")
+            or request.metrics.get("agentSeconds")
+            or 0
+        )
+
+        customer_talk_time = float(
+            request.metrics.get("customer_speaking_time")
+            or request.metrics.get("customerSeconds")
+            or 0
+        )
         
         # FIX: Calculate talk ratio correctly
         agent_talk_ratio = (agent_talk_time / max(total_duration, 0.1)) * 100 if total_duration > 0 else 0
@@ -117,16 +182,37 @@ async def score_call(request: ScoreRequest):
         if customer_sentiment["satisfaction"] > 70:
             resolution_score += 10
         resolution_score = min(95, resolution_score)
-        
-        # FIX: Calculate overall score properly
-        overall_score = round((
-            agent_quality["clarity"] * 0.25 +
-            agent_quality["courtesy"] * 0.20 +
-            agent_quality["professionalism"] * 0.20 +
-            talk_balance_score * 0.15 +
-            efficiency_score * 0.10 +
-            resolution_score * 0.10
-        ), 1)
+
+        greeting = safe_score(gemini_result.get("greeting", 80))
+
+        professionalism = safe_score(
+            gemini_result.get(
+                "professionalism",
+                agent_quality["professionalism"]
+            ),
+            agent_quality["professionalism"]
+        )
+
+        empathy = safe_score(gemini_result.get("empathy", 80))
+
+        resolution = safe_score(
+            gemini_result.get(
+                "resolution",
+                resolution_score
+            ),
+            resolution_score
+        )
+
+        overall_score = round(
+            (
+                greeting * 0.15 +
+                professionalism * 0.25 +
+                empathy * 0.25 +
+                resolution * 0.25 +
+                agent_quality["clarity"] * 0.10
+            ),
+            1
+        )
         
         # FIX: Smart flags with correct values
         flags = []
@@ -152,33 +238,33 @@ async def score_call(request: ScoreRequest):
             "callId": request.callId,
             "agentId": request.agentId,
             "timestamp": datetime.now().isoformat(),
-            "overallScore": max(0, min(100, overall_score)),
-            
-            # Agent metrics
+            "overallScore": overall_score,
+            "greeting": greeting,
+            "professionalism": professionalism,
+            "empathy": empathy,
+            "resolution": resolution,
             "clarity": agent_quality["clarity"],
             "courtesy": agent_quality["courtesy"],
-            "professionalism": agent_quality["professionalism"],
             "talkBalance": round(talk_balance_score, 1),
             "efficiency": round(efficiency_score, 1),
-            "resolution": round(resolution_score, 1),
-            
-            # Talk time - FIX: Use correct values
+            "customerSatisfaction": customer_sentiment["satisfaction"],
+            "customerFrustration": customer_sentiment["frustration"],
             "agentTalkRatio": round(agent_talk_ratio, 1),
             "agentTalkTime": round(agent_talk_time, 1),
             "customerTalkTime": round(customer_talk_time, 1),
             "totalDuration": round(total_duration, 1),
-            
-            # Detailed stats
-            "agentSegments": len(agent_segments),
-            "customerSegments": len(customer_segments),
-            "fillerWords": agent_quality["fillers"],
-            "courtesyWords": agent_quality["courtesyWords"],
-            "empathyPhrases": agent_quality["empathyPhrases"],
-            
-            # Customer sentiment
-            "customerSatisfaction": customer_sentiment["satisfaction"],
-            "customerFrustration": customer_sentiment["frustration"],
-            
+            "category": gemini_result.get("category", "Other"),
+            "sentiment": gemini_result.get("sentiment", "Neutral"),
+            "sentimentScore": safe_score(gemini_result.get("sentimentScore", 80), 80),
+            "summary": gemini_result.get("summary", ""),
+            "criticalIssues": gemini_result.get("criticalIssues", []),
+            "fullTranscript": full_transcript,
+            "embedding": embedding,
+            "actionItems": gemini_result.get("actionItems", []),
+            "strengths": gemini_result.get("strengths", []),
+            "weaknesses": gemini_result.get("weaknesses", []),
+            "coaching": gemini_result.get("coaching", []),
+            "fullTranscript": full_transcript,
             "flags": flags,
             "status": "scored"
         }
@@ -193,6 +279,13 @@ async def score_call(request: ScoreRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(500, str(e))
+
+@app.post("/embedding")
+async def generate_embedding(request: SearchRequest):
+    embedding = get_embedding(request.query)
+    return {
+        "embedding": embedding
+    }
 
 @app.get("/")
 async def root():
