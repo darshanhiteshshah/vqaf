@@ -20,7 +20,7 @@ export const api = {
   getDistribution: () => axios.get(`${API_BASE}/api/analytics/distribution/scores`),
   
   // Search
-  searchCalls: (query) => axios.post(`${API_BASE}/api/search`, { query }),
+  searchCalls: (query, limit = 10) => axios.post(`${API_BASE}/api/search`, { query, limit }),
 
   // Legacy
   getMetrics: (limit = 50) => axios.get(`${API_BASE}/api/metrics?limit=${limit}`)

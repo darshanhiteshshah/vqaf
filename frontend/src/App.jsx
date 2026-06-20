@@ -7,7 +7,7 @@ import HistoryPage from './pages/HistoryPage';
 import SearchPage from './pages/SearchPage';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState('main'); // 'main', 'analytics', 'detail', 'history'
+  const [currentView, setCurrentView] = useState('main'); // 'main', 'analytics', 'search', 'detail', 'history'
   const [selectedCallId, setSelectedCallId] = useState(null);
 
   const handleNavigate = (view) => {
@@ -21,7 +21,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="app-shell">
       <Header currentView={currentView} onNavigate={handleNavigate} />
       
       {currentView === 'main' && <MainPage onCallSelect={handleCallSelect} />}

@@ -82,7 +82,7 @@ export default function AnalyticsPage() {
       {/* Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Calls Card */}
-        <div className="bg-gray-950 border border-gray-900 rounded-xl p-6 hover:border-red-900/30 transition-all">
+        <div className="metric-card rounded-2xl p-6 hover:border-red-900/30 transition-all">
           <div className="flex items-start justify-between mb-4">
             <div className="h-10 w-10 bg-gray-900 rounded-lg flex items-center justify-center">
               <Mic className="h-5 w-5 text-gray-400" />
@@ -166,7 +166,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Trends Chart */}
-      <div className="bg-gray-950 border border-red-900/20 rounded-xl p-6">
+      <div className="panel rounded-2xl p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-3">
             <TrendingUp className="h-5 w-5 text-red-400" />
@@ -276,7 +276,7 @@ export default function AnalyticsPage() {
       <div className="grid lg:grid-cols-2 gap-6">
         
         {/* Agent Leaderboard */}
-        <div className="bg-gray-950 border border-red-900/20 rounded-xl p-6">
+        <div className="panel rounded-2xl p-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <Users className="h-5 w-5 text-red-400" />
@@ -296,7 +296,7 @@ export default function AnalyticsPage() {
                 return (
                   <div 
                     key={agent.agentId} 
-                    className="flex items-center justify-between p-4 bg-black/30 rounded-lg border border-gray-900 hover:border-red-900/30 hover:bg-black/40 transition-all group"
+                    className="flex items-center justify-between p-4 bg-black/35 rounded-xl border border-white/10 hover:border-red-900/30 hover:bg-black/40 transition-all group"
                   >
                     <div className="flex items-center gap-4">
                       <div className={cx(
@@ -345,7 +345,7 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Score Distribution */}
-        <div className="bg-gray-950 border border-red-900/20 rounded-xl p-6">
+        <div className="panel rounded-2xl p-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <PieChart className="h-5 w-5 text-red-400" />
@@ -409,3 +409,4 @@ export default function AnalyticsPage() {
     </main>
   );
 }
+
