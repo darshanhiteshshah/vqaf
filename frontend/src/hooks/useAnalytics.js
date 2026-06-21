@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../utils/api';
 
 export const useAnalytics = (trendDays = 7) => {
@@ -11,7 +11,7 @@ export const useAnalytics = (trendDays = 7) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     try {
       setLoading(true);
       const [overviewRes, leaderboardRes, trendsRes, distributionRes] = await Promise.all([
@@ -34,11 +34,11 @@ export const useAnalytics = (trendDays = 7) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [trendDays]);
 
   useEffect(() => {
     fetchAnalytics();
-  }, [trendDays]);
+  }, [fetchAnalytics]);
 
   return { analytics, loading, error, refetch: fetchAnalytics };
 };

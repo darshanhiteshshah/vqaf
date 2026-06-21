@@ -1,409 +1,330 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
-  Award,
-  CheckCircle,
+  CheckCircle2,
   Clock,
   CloudUpload,
   FileAudio,
+  Headphones,
+  Loader2,
   Mic,
+  Radio,
   RefreshCw,
   ShieldCheck,
-  TrendingUp,
   Upload,
   Users,
-  Waves,
   Zap
 } from 'lucide-react';
 import axios from 'axios';
+import { api } from '../utils/api';
+import { EmptyVisual, PageFrame, ScoreRing, Sparkline, StatTile, VisualPanel, Waveform } from '../components/DashboardVisuals';
+import { safeNumber } from '../utils/visual';
+import { useCalls } from '../hooks/useCalls';
+import { getCallMetrics } from '../utils/metrics';
 
 function cx(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
-function getScoreValue(result) {
-  return Number(result?.scores?.overallScore || result?.scores?.overall_score || 0);
+function formatDuration(seconds) {
+  const value = safeNumber(seconds);
+  const mins = Math.floor(value / 60);
+  const secs = Math.floor(value % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-function getScoreTone(score) {
-  if (score >= 80) return { label: 'Excellent', text: 'text-green-400', stroke: '#22c55e' };
-  if (score >= 60) return { label: 'Good', text: 'text-yellow-400', stroke: '#eab308' };
-  return { label: 'Needs Review', text: 'text-red-400', stroke: '#ef4444' };
+function formatFileSize(bytes) {
+  if (!bytes) return '0 KB';
+  const units = ['B', 'KB', 'MB'];
+  const power = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / 1024 ** power).toFixed(power ? 1 : 0)} ${units[power]}`;
 }
 
-export default function MainPage() {
+function getScore(call) {
+  return safeNumber(call?.scores?.overallScore ?? call?.scores?.overall_score);
+}
+
+export default function MainPage({ onCallSelect }) {
+  const { calls, refetch } = useCalls();
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [processingStage, setProcessingStage] = useState('');
+  const [activeCallId, setActiveCallId] = useState('');
+  const [activeCall, setActiveCall] = useState(null);
+
+  const recentCalls = calls.slice(0, 5);
+  const scoredCalls = calls.filter((call) => call.status === 'scored');
+  const avgScore = scoredCalls.length
+    ? scoredCalls.reduce((sum, call) => sum + getScore(call), 0) / scoredCalls.length
+    : 0;
+  const sparkValues = recentCalls.map((call) => getScore(call) || 30).reverse();
+
+  useEffect(() => {
+    if (!activeCallId || activeCall?.status === 'scored' || activeCall?.status === 'failed') return undefined;
+
+    const timer = setInterval(async () => {
+      try {
+        const res = await api.getCall(activeCallId);
+        setActiveCall(res.data);
+        if (res.data?.status === 'scored' || res.data?.status === 'failed') {
+          refetch();
+        }
+      } catch {
+        // The record may not be queryable for a beat after queueing.
+      }
+    }, 2500);
+
+    return () => clearInterval(timer);
+  }, [activeCallId, activeCall?.status, refetch]);
 
   const validateFile = (selectedFile) => {
-    const maxSize = 100 * 1024 * 1024;
-    const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/mp3', 'audio/m4a', 'audio/ogg', 'audio/x-m4a'];
     const allowedExtensions = /\.(mp3|wav|m4a|ogg)$/i;
-
-    if (selectedFile.size > maxSize) {
-      setError('File size must be less than 100MB');
+    if (selectedFile.size > 100 * 1024 * 1024) {
+      setError('Max 100MB');
       return false;
     }
-
-    if (!allowedTypes.includes(selectedFile.type) && !allowedExtensions.test(selectedFile.name)) {
-      setError('Please upload a valid audio file (MP3, WAV, M4A, OGG)');
+    if (!allowedExtensions.test(selectedFile.name) && !selectedFile.type.startsWith('audio/')) {
+      setError('Use MP3, WAV, M4A, or OGG');
       return false;
     }
-
     return true;
   };
 
-  const handleFileChange = (event) => {
-    const selectedFile = event.target.files[0];
+  const setSelectedFile = (selectedFile) => {
     if (selectedFile && validateFile(selectedFile)) {
       setFile(selectedFile);
-      setError(null);
-      setResult(null);
-    }
-  };
-
-  const handleDrop = (event) => {
-    event.preventDefault();
-    setDragActive(false);
-
-    if (event.dataTransfer.files?.[0]) {
-      const droppedFile = event.dataTransfer.files[0];
-      if (validateFile(droppedFile)) {
-        setFile(droppedFile);
-        setError(null);
-        setResult(null);
-      }
+      setError('');
+      setActiveCall(null);
+      setActiveCallId('');
+      setUploadProgress(0);
     }
   };
 
   const handleUpload = async () => {
     if (!file) return;
 
+    const callId = `call_${Date.now()}`;
     setLoading(true);
-    setError(null);
+    setError('');
     setUploadProgress(0);
-    setProcessingStage('Uploading...');
+    setActiveCallId(callId);
+    setActiveCall({ callId, status: 'uploading' });
 
     try {
       const formData = new FormData();
       formData.append('audioFile', file);
       formData.append('agentId', 'agent-001');
-      formData.append('callId', `call_${Date.now()}`);
+      formData.append('callId', callId);
 
-      const res = await axios.post('http://localhost:5000/api/uploads', formData, {
+      await axios.post('http://localhost:5000/api/uploads', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        onUploadProgress: (progressEvent) => {
-          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          setUploadProgress(progress);
-
-          if (progress === 100) {
-            setProcessingStage('Transcribing audio...');
-          }
+        onUploadProgress: (event) => {
+          setUploadProgress(Math.round((event.loaded * 100) / event.total));
         }
       });
 
-      setProcessingStage('Analysis complete');
-      setResult(res.data);
+      setActiveCall({ callId, status: 'queued' });
       setFile(null);
-      setUploadProgress(100);
+      refetch();
     } catch (err) {
-      setError(err?.response?.data?.error || 'Upload failed. Please try again.');
-      setProcessingStage('');
+      setError(err?.response?.data?.error || 'Upload failed');
+      setActiveCall({ callId, status: 'failed' });
     } finally {
       setLoading(false);
     }
   };
 
-  const formatDuration = (seconds) => {
-    if (!seconds) return '0:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const formatFileSize = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100} ${sizes[i]}`;
-  };
-
-  const score = getScoreValue(result);
-  const tone = getScoreTone(score);
-  const circumference = 2 * Math.PI * 54;
-  const scoreOffset = circumference - (score / 100) * circumference;
-  const agentTalkPct = Number(result?.metrics?.agentTalkPct || 0);
+  const activeMetrics = useMemo(() => activeCall ? getCallMetrics(activeCall) : null, [activeCall]);
+  const activeScore = getScore(activeCall);
+  const status = activeCall?.status || 'idle';
+  const isDone = status === 'scored';
+  const isFailed = status === 'failed';
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-      <section className="panel rounded-2xl p-6 sm:p-8 overflow-hidden relative">
-        <div className="absolute inset-0 subtle-grid opacity-35" />
-        <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-950/40 border border-red-900/40 text-xs font-semibold text-red-200 mb-4">
-              <Waves className="h-3.5 w-3.5" />
-              Voice intelligence pipeline
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-black tracking-tight text-white">
-              Analyze call quality with clean, visual QA insights.
-            </h2>
-            <p className="mt-3 text-sm sm:text-base text-gray-400 max-w-xl">
-              Upload a recording, transcribe speakers, score performance, detect issues, and search past calls by meaning.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3 min-w-full sm:min-w-[420px] lg:min-w-[440px]">
-            {[
-              { label: 'STT', value: 'Whisper', icon: Mic },
-              { label: 'QA', value: 'Gemini', icon: Award },
-              { label: 'Search', value: 'Hybrid', icon: ShieldCheck }
-            ].map(({ label, value, icon: Icon }) => (
-              <div key={label} className="metric-card rounded-xl p-4">
-                <Icon className="h-5 w-5 text-red-400 mb-3" />
-                <div className="text-lg font-bold text-white">{value}</div>
-                <div className="text-xs text-gray-500">{label}</div>
+    <PageFrame className="space-y-6">
+      <section className="grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
+        <VisualPanel className="p-6 sm:p-8" glow>
+          <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
+            <div>
+              <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-teal-300/20 bg-teal-400/10 px-3 py-1 text-xs font-black text-teal-100">
+                <Radio className="h-3.5 w-3.5" />
+                Live pipeline
               </div>
-            ))}
+              <h1 className="text-3xl font-black tracking-tight text-white sm:text-5xl">QA Studio</h1>
+              <div className="mt-5 grid grid-cols-3 gap-3">
+                <MiniStage active={['uploading', 'queued', 'processing', 'transcribed', 'scored'].includes(status)} label="Ingest" icon={<Upload className="mx-auto mb-2 h-4 w-4" />} />
+                <MiniStage active={['processing', 'transcribed', 'scored'].includes(status)} label="STT" icon={<Mic className="mx-auto mb-2 h-4 w-4" />} />
+                <MiniStage active={status === 'scored'} label="Score" icon={<ShieldCheck className="mx-auto mb-2 h-4 w-4" />} />
+              </div>
+            </div>
+
+            <div className="scan-line rounded-2xl border border-white/10 bg-black/24 p-5">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Signal preview</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{file?.name || activeCallId || 'Drop a call to begin'}</p>
+                </div>
+                <span className={cx(
+                  'rounded-full px-3 py-1 text-xs font-black uppercase',
+                  isDone ? 'bg-emerald-400/12 text-emerald-200' : isFailed ? 'bg-rose-400/12 text-rose-200' : 'bg-white/8 text-slate-300'
+                )}>
+                  {status}
+                </span>
+              </div>
+              <Waveform active={isDone ? activeScore : loading ? uploadProgress : 62} tone={isDone ? 'teal' : 'red'} />
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-900">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-rose-500 via-red-500 to-teal-300 transition-all duration-500"
+                  style={{ width: `${isDone ? 100 : loading ? uploadProgress : status === 'queued' ? 42 : 12}%` }}
+                />
+              </div>
+            </div>
           </div>
+        </VisualPanel>
+
+        <div className="grid grid-cols-2 gap-4">
+          <StatTile icon={Headphones} label="Calls" value={calls.length} helper="Total records" />
+          <StatTile icon={Zap} label="Avg QA" value={avgScore ? avgScore.toFixed(0) : 'N/A'} helper="Scored calls" tone="teal">
+            <Sparkline values={sparkValues} color="#2dd4bf" className="mt-2" />
+          </StatTile>
+          <StatTile icon={Clock} label="Queued" value={calls.filter((call) => call.status === 'queued' || call.status === 'processing').length} helper="In progress" tone="amber" />
+          <StatTile icon={Users} label="Agents" value={new Set(calls.map((call) => call.agentId)).size || 0} helper="Observed IDs" tone="blue" />
         </div>
       </section>
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 panel rounded-2xl p-6 h-fit sticky top-24">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="h-10 w-10 bg-red-600/15 border border-red-900/40 rounded-xl flex items-center justify-center">
-              <Upload className="h-5 w-5 text-red-400" />
-            </div>
+      <section className="grid gap-6 lg:grid-cols-[360px_1fr]">
+        <VisualPanel className="p-5">
+          <div className="mb-4 flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-bold text-white">Upload Audio</h2>
-              <p className="text-xs text-gray-500">Analyze a call recording</p>
+              <p className="stat-label">Upload</p>
+              <h2 className="text-xl font-black text-white">New call</h2>
             </div>
+            <CloudUpload className="h-6 w-6 text-rose-300" />
           </div>
 
           <div
-            onDrop={handleDrop}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragActive(false);
+              setSelectedFile(event.dataTransfer.files?.[0]);
+            }}
             onDragOver={(event) => {
               event.preventDefault();
               setDragActive(true);
             }}
-            onDragLeave={(event) => {
-              event.preventDefault();
-              setDragActive(false);
-            }}
+            onDragLeave={() => setDragActive(false)}
             className={cx(
-              'relative border-2 border-dashed rounded-xl p-8 transition-all cursor-pointer mb-4',
-              dragActive ? 'border-red-500 bg-red-950/20 red-glow' : 'border-white/10 bg-black/25 hover:border-red-900/60 hover:bg-red-950/10',
-              loading && 'pointer-events-none opacity-50'
+              'relative mb-4 rounded-2xl border border-dashed p-7 text-center transition-all',
+              dragActive ? 'border-teal-300 bg-teal-300/10' : 'border-white/14 bg-white/[0.035] hover:border-rose-300/50'
             )}
           >
             <input
               type="file"
               accept="audio/*,.mp3,.wav,.m4a,.ogg"
-              className="absolute inset-0 opacity-0 cursor-pointer"
-              onChange={handleFileChange}
+              className="absolute inset-0 cursor-pointer opacity-0"
+              onChange={(event) => setSelectedFile(event.target.files?.[0])}
               disabled={loading}
             />
-            <div className="flex flex-col items-center text-center">
-              <div className={cx(
-                'h-16 w-16 rounded-xl flex items-center justify-center mb-3 transition-all border',
-                dragActive ? 'bg-red-900/20 border-red-700' : 'bg-black/40 border-white/10'
-              )}>
-                {dragActive ? (
-                  <CloudUpload className="h-8 w-8 text-red-400" />
-                ) : (
-                  <FileAudio className="h-8 w-8 text-gray-500" />
-                )}
-              </div>
-              <p className="text-sm font-semibold text-white mb-1">
-                {dragActive ? 'Drop file here' : 'Drop or click to upload'}
-              </p>
-              <p className="text-xs text-gray-500 mb-2">MP3, WAV, M4A, OGG</p>
-              {file && (
-                <div className="mt-3 w-full bg-black/45 rounded-xl p-3 border border-white/10">
-                  <div className="flex items-center gap-2 mb-1">
-                    <FileAudio className="h-4 w-4 text-red-400 shrink-0" />
-                    <p className="text-xs text-white font-medium truncate">{file.name}</p>
-                  </div>
-                  <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
-                </div>
-              )}
-            </div>
+            <FileAudio className="mx-auto mb-3 h-10 w-10 text-slate-400" />
+            <p className="text-sm font-bold text-white">{file ? file.name : 'Drop audio'}</p>
+            <p className="mt-1 text-xs text-slate-500">{file ? formatFileSize(file.size) : 'MP3 · WAV · M4A · OGG'}</p>
           </div>
 
           {error && (
-            <div className="mb-4 bg-red-950/30 border border-red-900/50 rounded-xl p-3 flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-              <p className="text-xs text-red-300">{error}</p>
-            </div>
-          )}
-
-          {loading && (
-            <div className="mb-4 bg-black/35 border border-white/10 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs text-gray-400">{processingStage}</p>
-                <p className="text-xs text-red-400 font-medium">{uploadProgress}%</p>
-              </div>
-              <div className="w-full bg-gray-800 rounded-full h-2">
-                <div
-                  className="bg-gradient-to-r from-red-700 to-red-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-rose-400/20 bg-rose-500/10 p-3 text-sm text-rose-200">
+              <AlertCircle className="h-4 w-4" />
+              {error}
             </div>
           )}
 
           <button
             onClick={handleUpload}
             disabled={!file || loading}
-            className={cx(
-              'focus-ring w-full py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all',
-              !file || loading
-                ? 'bg-gray-900 text-gray-600'
-                : 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-700 text-white shadow-lg shadow-red-950/30'
-            )}
+            className="focus-ring flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-950 transition-all hover:bg-teal-100 disabled:bg-slate-800 disabled:text-slate-500"
           >
-            {loading ? (
-              <>
-                <RefreshCw className="h-4 w-4 animate-spin" />
-                Processing
-              </>
-            ) : (
-              <>
-                <Zap className="h-4 w-4" />
-                Analyze Call
-              </>
-            )}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+            {loading ? 'Queueing' : 'Analyze'}
           </button>
+        </VisualPanel>
 
-          <p className="mt-4 text-xs text-center text-gray-600">Secure local workflow | Max 100MB</p>
-        </div>
-
-        <div className="lg:col-span-2">
-          {result ? (
-            <div className="space-y-6">
-              <div className="panel rounded-2xl p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-lg font-bold text-white">Analysis Results</h3>
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-green-950/20 border border-green-900/30 rounded-lg">
-                    <CheckCircle className="h-4 w-4 text-green-400" />
-                    <span className="text-xs text-green-400 font-medium">Complete</span>
+        <VisualPanel className="p-5">
+          {activeCall ? (
+            <div className="grid gap-6 lg:grid-cols-[180px_1fr]">
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-black/24 p-5">
+                {isDone ? <ScoreRing score={activeScore} size={154} /> : isFailed ? <AlertCircle className="h-16 w-16 text-rose-300" /> : <Loader2 className="h-16 w-16 animate-spin text-teal-300" />}
+                <p className="mt-3 text-center text-sm font-black text-white">{isDone ? 'Scored' : isFailed ? 'Failed' : 'Processing'}</p>
+              </div>
+              <div>
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-mono text-sm font-bold text-rose-300">{activeCallId}</p>
+                    <p className="text-xs text-slate-500">Worker status: {status}</p>
                   </div>
+                  {isDone && (
+                    <button onClick={() => onCallSelect(activeCallId)} className="focus-ring rounded-xl bg-teal-300 px-4 py-2 text-xs font-black text-slate-950">
+                      Open detail
+                    </button>
+                  )}
                 </div>
 
-                <div className="grid md:grid-cols-[220px_1fr] gap-5 mb-6">
-                  <div className="panel-soft rounded-2xl p-5 flex flex-col items-center justify-center">
-                    <div className="relative h-36 w-36">
-                      <svg viewBox="0 0 140 140" className="h-full w-full -rotate-90">
-                        <circle cx="70" cy="70" r="54" fill="none" stroke="#1f2937" strokeWidth="12" />
-                        <circle
-                          cx="70"
-                          cy="70"
-                          r="54"
-                          fill="none"
-                          stroke={tone.stroke}
-                          strokeLinecap="round"
-                          strokeWidth="12"
-                          strokeDasharray={circumference}
-                          strokeDashoffset={scoreOffset}
-                        />
-                      </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className={cx('text-3xl font-black', tone.text)}>{score || 'N/A'}</span>
-                        <span className="text-xs text-gray-500">out of 100</span>
-                      </div>
-                    </div>
-                    <div className={cx('mt-3 text-sm font-bold', tone.text)}>{tone.label}</div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <Metric icon={Award} label="Overall Score" value={score ? `${score}/100` : 'N/A'} color="text-red-400" />
-                    <Metric icon={Clock} label="Duration" value={formatDuration(result.metrics?.totalDuration || result.metrics?.duration)} color="text-sky-400" />
-                    <Metric icon={Users} label="Agent Talk" value={`${agentTalkPct || 0}%`} color="text-red-300" />
-                    <Metric
-                      icon={TrendingUp}
-                      label="Confidence"
-                      value={result.metrics?.confidence ? `${(result.metrics.confidence * 100).toFixed(0)}%` : 'N/A'}
-                      color="text-green-400"
-                    />
-                  </div>
-                </div>
-
-                <div className="panel-soft rounded-xl p-4 mb-6">
-                  <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
-                    <span>Agent talk</span>
-                    <span>Customer talk</span>
-                  </div>
-                  <div className="h-4 rounded-full bg-black/50 overflow-hidden flex">
-                    <div
-                      className="bg-gradient-to-r from-red-700 to-red-500"
-                      style={{ width: `${Math.min(agentTalkPct, 100)}%` }}
-                    />
-                    <div className="bg-gradient-to-r from-sky-700 to-sky-500 flex-1" />
-                  </div>
-                </div>
-
-                <div className="panel-soft rounded-xl p-4">
-                  <h4 className="text-sm font-semibold text-white mb-3">Call Information</h4>
-                  <div className="grid grid-cols-2 gap-4 text-xs">
-                    <Info label="Call ID" value={result.callId} mono />
-                    <Info label="Method" value={result.method || 'Energy-based'} />
-                    <Info label="Agent Time" value={formatDuration(result.metrics?.agentSeconds)} />
-                    <Info label="Customer Time" value={formatDuration(result.metrics?.customerSeconds)} />
-                  </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <MiniMetric label="Duration" value={formatDuration(activeMetrics?.durationRaw)} />
+                  <MiniMetric label="Agent" value={`${activeMetrics?.agentPct || 0}%`} />
+                  <MiniMetric label="Customer" value={`${activeMetrics?.customerPct || 0}%`} />
+                  <MiniMetric label="Confidence" value={`${activeMetrics?.confidence || 0}%`} />
                 </div>
               </div>
-
-              <details className="panel rounded-2xl overflow-hidden">
-                <summary className="px-6 py-4 cursor-pointer hover:bg-white/5 transition-colors text-sm font-semibold text-gray-400">
-                  View Raw JSON Data
-                </summary>
-                <div className="px-6 pb-6">
-                  <pre className="text-xs text-gray-400 overflow-auto bg-black/40 p-4 rounded-xl border border-white/10">
-                    {JSON.stringify(result, null, 2)}
-                  </pre>
-                </div>
-              </details>
             </div>
           ) : (
-            <div className="h-full min-h-[520px] panel rounded-2xl flex flex-col items-center justify-center py-20 px-6 text-center">
-              <div className="h-24 w-24 bg-red-950/20 rounded-2xl flex items-center justify-center mb-5 border border-red-900/30 red-glow">
-                <Mic className="h-11 w-11 text-red-300" />
-              </div>
-              <h3 className="text-xl font-bold text-white mb-2">Ready for analysis</h3>
-              <p className="text-sm text-gray-500 max-w-sm">
-                Upload a call recording to generate QA scores, speaker analytics, flags, and search-ready insights.
-              </p>
-            </div>
+            <EmptyVisual icon={Mic} title="No active analysis" hint="Upload a recording and watch the processing state here." />
           )}
+        </VisualPanel>
+      </section>
+
+      <VisualPanel className="p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <p className="stat-label">Recent calls</p>
+            <h2 className="text-xl font-black text-white">Latest activity</h2>
+          </div>
+          <button onClick={refetch} className="focus-ring rounded-xl border border-white/10 bg-white/[0.04] p-2 text-slate-300 hover:text-white">
+            <RefreshCw className="h-4 w-4" />
+          </button>
         </div>
-      </div>
-    </main>
+        <div className="grid gap-3 md:grid-cols-5">
+          {recentCalls.length ? recentCalls.map((call) => (
+            <button
+              key={call._id || call.callId}
+              onClick={() => onCallSelect(call.callId)}
+              className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 text-left transition-all hover:-translate-y-1 hover:border-teal-300/40"
+            >
+              <p className="truncate font-mono text-xs font-bold text-rose-300">{call.callId}</p>
+              <p className="mt-2 text-2xl font-black text-white">{getScore(call) || 'N/A'}</p>
+              <p className="mt-1 text-xs text-slate-500">{call.status}</p>
+            </button>
+          )) : <div className="md:col-span-5"><EmptyVisual icon={Headphones} title="No calls yet" hint="Your uploaded calls will appear here." /></div>}
+        </div>
+      </VisualPanel>
+    </PageFrame>
   );
 }
 
-function Metric({ icon: Icon, label, value, color }) {
+function MiniStage({ active, label, icon }) {
   return (
-    <div className="metric-card rounded-xl p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className={cx('h-4 w-4', color)} />
-        <p className="text-xs text-gray-500">{label}</p>
-      </div>
-      <p className="text-2xl font-bold text-white">{value}</p>
+    <div className={cx('rounded-2xl border p-3 text-center transition-all', active ? 'border-teal-300/30 bg-teal-300/10 text-teal-100' : 'border-white/10 bg-white/[0.035] text-slate-500')}>
+      {icon}
+      <p className="text-xs font-black">{label}</p>
     </div>
   );
 }
 
-function Info({ label, value, mono }) {
+function MiniMetric({ label, value }) {
   return (
-    <div>
-      <p className="text-gray-500 mb-1">{label}</p>
-      <p className={cx('text-gray-300', mono && 'font-mono')}>{value}</p>
+    <div className="rounded-2xl border border-white/10 bg-black/24 p-4">
+      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="mt-2 text-xl font-black text-white">{value}</p>
     </div>
   );
 }

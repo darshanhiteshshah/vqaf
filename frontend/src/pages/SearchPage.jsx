@@ -1,50 +1,19 @@
-import { useState } from 'react';
-import {
-  AlertCircle,
-  ArrowRight,
-  Brain,
-  Loader2,
-  Search,
-  Sparkles
-} from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { AlertCircle, ArrowRight, Brain, Loader2, Radar, Search, Sparkles, Target } from 'lucide-react';
 import { api } from '../utils/api';
 import { formatDate } from '../utils/formatters';
+import { EmptyVisual, PageFrame, ScoreRing, Sparkline, VisualPanel } from '../components/DashboardVisuals';
+import { safeNumber, scoreTone } from '../utils/visual';
 
 function cx(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
-function scoreColor(score) {
-  if (score >= 80) return 'text-green-400';
-  if (score >= 60) return 'text-yellow-400';
-  return 'text-red-400';
-}
-
-function safeNumber(value, fallback = 0) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : fallback;
-}
-
-function getResultScores(result) {
+function getScores(result) {
   const similarity = Math.max(safeNumber(result.similarity), 0);
   const keywordScore = safeNumber(result.keywordScore);
-  const relevance = safeNumber(
-    result.relevance,
-    Math.max(similarity, keywordScore)
-  );
-
-  return {
-    keywordScore,
-    relevance,
-    similarity
-  };
-}
-
-function relevanceLabel(value) {
-  const percent = Math.round(safeNumber(value) * 100);
-  if (percent >= 70) return `${percent}% strong match`;
-  if (percent >= 40) return `${percent}% good match`;
-  return `${percent}% possible match`;
+  const relevance = safeNumber(result.relevance, Math.max(similarity, keywordScore));
+  return { similarity, keywordScore, relevance };
 }
 
 export default function SearchPage({ onCallSelect }) {
@@ -53,6 +22,9 @@ export default function SearchPage({ onCallSelect }) {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
+
+  const examples = ['refund anger', 'no empathy', 'billing escalation', 'unresolved issue', 'strong greeting'];
+  const topRelevance = useMemo(() => Math.max(...results.map((result) => getScores(result).relevance), 0), [results]);
 
   const handleSearch = async (event) => {
     event?.preventDefault();
@@ -74,178 +46,134 @@ export default function SearchPage({ onCallSelect }) {
     }
   };
 
-  const examples = [
-    'angry customer about billing',
-    'low empathy and unresolved issue',
-    'agent did not greet customer',
-    'refund complaint with negative sentiment'
-  ];
-
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-      <section className="panel rounded-2xl p-6 sm:p-8 overflow-hidden relative">
-        <div className="absolute inset-0 subtle-grid opacity-30" />
-        <div className="relative">
-        <div className="flex items-start gap-4 mb-6">
-          <div className="h-12 w-12 bg-red-600/15 border border-red-900/40 rounded-xl flex items-center justify-center red-glow">
-            <Brain className="h-6 w-6 text-red-400" />
-          </div>
+    <PageFrame className="space-y-6">
+      <VisualPanel className="p-6 sm:p-8" glow>
+        <div className="grid gap-6 lg:grid-cols-[1fr_320px] lg:items-center">
           <div>
-            <h2 className="text-3xl font-black tracking-tight text-white">Semantic Call Search</h2>
-            <p className="text-sm text-gray-400 mt-1">
-              Search by meaning, issue, sentiment, coaching need, or exact words.
-            </p>
-          </div>
-        </div>
-
-        <form onSubmit={handleSearch} className="flex flex-col md:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-500" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Try: angry customer about refund, no empathy, unresolved billing issue..."
-              className="focus-ring w-full pl-12 pr-4 py-3 bg-black/45 border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-red-900/60"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading || !query.trim()}
-            className="focus-ring px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-900 disabled:text-gray-600 disabled:cursor-not-allowed rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 transition-all"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Searching
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4" />
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-teal-300/20 bg-teal-400/10 px-3 py-1 text-xs font-black text-teal-100">
+              <Brain className="h-3.5 w-3.5" />
+              Semantic retrieval
+            </div>
+            <h1 className="text-3xl font-black tracking-tight text-white sm:text-5xl">Find moments, not filenames</h1>
+            <form onSubmit={handleSearch} className="mt-6 flex flex-col gap-3 md:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search by issue, behavior, sentiment..."
+                  className="focus-ring w-full rounded-2xl border border-white/10 bg-black/28 py-4 pl-12 pr-4 text-sm font-semibold text-white placeholder:text-slate-600"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading || !query.trim()}
+                className="focus-ring flex items-center justify-center gap-2 rounded-2xl bg-white px-6 py-4 text-sm font-black text-slate-950 transition-all hover:bg-teal-100 disabled:bg-slate-800 disabled:text-slate-500"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                 Search
-              </>
-            )}
-          </button>
-        </form>
+              </button>
+            </form>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {examples.map((example) => (
+                <button
+                  key={example}
+                  onClick={() => setQuery(example)}
+                  className="focus-ring rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-slate-400 transition-all hover:border-teal-300/30 hover:text-white"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
 
-        <div className="flex flex-wrap gap-2 mt-4">
-          {examples.map((example) => (
-            <button
-              key={example}
-              onClick={() => setQuery(example)}
-              className="focus-ring px-3 py-1.5 bg-black/35 hover:bg-red-950/25 border border-white/10 hover:border-red-900/40 rounded-full text-xs text-gray-400 hover:text-white transition-colors"
-            >
-              {example}
-            </button>
-          ))}
+          <div className="rounded-3xl border border-white/10 bg-black/24 p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="stat-label">Match field</p>
+                <p className="text-xl font-black text-white">{results.length || 0} hits</p>
+              </div>
+              <Radar className="h-7 w-7 text-teal-300" />
+            </div>
+            <Sparkline values={results.map((result) => getScores(result).relevance * 100)} color="#2dd4bf" className="h-24" />
+            <p className="mt-3 text-xs font-semibold text-slate-500">Peak relevance {Math.round(topRelevance * 100)}%</p>
+          </div>
         </div>
-        </div>
-      </section>
+      </VisualPanel>
 
       {error && (
-        <div className="bg-red-950/30 border border-red-900/50 rounded-lg p-4 flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-red-400 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-red-300">Search failed</p>
-            <p className="text-sm text-red-200/80 mt-1">{error}</p>
-          </div>
+        <div className="flex items-center gap-3 rounded-2xl border border-rose-400/20 bg-rose-500/10 p-4 text-rose-100">
+          <AlertCircle className="h-5 w-5" />
+          <p className="text-sm font-semibold">{error}</p>
         </div>
       )}
 
-      <section className="space-y-4">
-        {searched && !loading && results.length === 0 && !error && (
-          <div className="panel rounded-2xl py-16 text-center">
-            <Search className="h-10 w-10 text-gray-700 mx-auto mb-3" />
-            <p className="text-gray-500 font-semibold">No matching calls found</p>
-            <p className="text-sm text-gray-700 mt-1">Try a broader phrase or search for category, sentiment, or issue words.</p>
-          </div>
+      <section className="grid gap-4">
+        {loading && (
+          <VisualPanel className="p-8">
+            <EmptyVisual icon={Loader2} title="Searching" hint="Ranking calls by semantic and keyword relevance." />
+          </VisualPanel>
         )}
 
-        {results.map((result) => {
-          const resultScores = getResultScores(result);
+        {searched && !loading && !results.length && !error && (
+          <VisualPanel>
+            <EmptyVisual icon={Search} title="No matches" hint="Try a broader phrase or search by customer issue." />
+          </VisualPanel>
+        )}
 
-          return (
-            <button
-              key={result.callId}
-              onClick={() => onCallSelect(result.callId)}
-              className="w-full text-left panel hover:border-red-800/60 rounded-2xl p-5 transition-all group"
-            >
-              <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 mb-3">
-                    <span className="font-mono text-sm text-red-400 font-semibold">{result.callId}</span>
-                    <span className="text-xs text-gray-600">Agent {result.agentId}</span>
-                    {result.createdAt && (
-                      <span className="text-xs text-gray-600">{formatDate(result.createdAt)}</span>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {result.category && (
-                      <span className="px-2 py-1 bg-red-950/25 border border-red-900/35 rounded-lg text-xs text-red-200">
-                        {result.category}
-                      </span>
-                    )}
-                    {result.sentiment && (
-                      <span className={cx(
-                        "px-2 py-1 border rounded text-xs",
-                        result.sentiment.toLowerCase().includes('negative')
-                          ? 'bg-red-950/30 border-red-900/30 text-red-300'
-                          : 'bg-green-950/20 border-green-900/30 text-green-300'
-                      )}>
-                        {result.sentiment}
-                      </span>
-                    )}
-                    {result.matchedTerms?.map((term) => (
-                      <span key={term} className="px-2 py-1 bg-black/35 border border-white/10 rounded-lg text-xs text-gray-400">
-                        {term}
-                      </span>
-                    ))}
-                  </div>
-
-                  <p className="text-sm text-gray-300 leading-relaxed">
-                    {result.snippet || result.summary || 'No summary available for this call.'}
-                  </p>
-
-                  {(result.criticalIssues?.length > 0 || result.weaknesses?.length > 0) && (
-                    <div className="mt-4 grid md:grid-cols-2 gap-3">
-                      {result.criticalIssues?.length > 0 && (
-                        <div className="bg-red-950/20 border border-red-900/30 rounded-xl p-3">
-                          <p className="text-xs uppercase font-semibold text-red-300 mb-2">Critical Issues</p>
-                          <p className="text-xs text-gray-300">{result.criticalIssues.slice(0, 2).join(' | ')}</p>
-                        </div>
-                      )}
-                      {result.weaknesses?.length > 0 && (
-                        <div className="bg-yellow-950/20 border border-yellow-900/30 rounded-xl p-3">
-                          <p className="text-xs uppercase font-semibold text-yellow-300 mb-2">Weaknesses</p>
-                          <p className="text-xs text-gray-300">{result.weaknesses.slice(0, 2).join(' | ')}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex lg:flex-col items-center lg:items-end justify-between gap-3">
-                  <div className="text-right">
-                    <p className={cx("text-2xl font-bold", scoreColor(result.score || 0))}>
-                      {result.score?.toFixed ? result.score.toFixed(1) : result.score || 'N/A'}
-                    </p>
-                    <p className="text-xs text-gray-600">QA score</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold text-white">{relevanceLabel(resultScores.relevance)}</p>
-                    <div className="mt-2 w-36 space-y-1.5">
-                      <MiniBar label="semantic" value={resultScores.similarity} />
-                      <MiniBar label="keyword" value={resultScores.keywordScore} />
-                    </div>
-                  </div>
-                  <ArrowRight className="h-5 w-5 text-gray-600 group-hover:text-red-400 transition-colors" />
-                </div>
-              </div>
-            </button>
-          );
-        })}
+        {!loading && results.map((result, index) => (
+          <ResultCard key={result.callId} result={result} rank={index + 1} onOpen={() => onCallSelect(result.callId)} />
+        ))}
       </section>
-    </main>
+    </PageFrame>
+  );
+}
+
+function ResultCard({ result, rank, onOpen }) {
+  const scores = getScores(result);
+  const qaScore = safeNumber(result.score);
+  const tone = scoreTone(qaScore);
+
+  return (
+    <button onClick={onOpen} className="float-in w-full rounded-3xl border border-white/10 bg-white/[0.035] p-4 text-left transition-all hover:-translate-y-1 hover:border-teal-300/40 sm:p-5">
+      <div className="grid gap-5 lg:grid-cols-[92px_1fr_220px] lg:items-center">
+        <div className="flex items-center gap-3 lg:flex-col lg:items-start">
+          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-base font-black text-slate-950">{rank}</span>
+          <ScoreRing score={qaScore} size={86} stroke={8} label="" />
+        </div>
+
+        <div className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="font-mono text-sm font-black text-rose-300">{result.callId}</span>
+            <span className="rounded-full bg-white/[0.06] px-2 py-1 text-xs font-bold text-slate-400">{result.agentId}</span>
+            {result.createdAt && <span className="text-xs font-semibold text-slate-600">{formatDate(result.createdAt)}</span>}
+          </div>
+          <p className={cx('mb-2 text-sm font-black', tone.text)}>{tone.label} QA</p>
+          <p className="line-clamp-2 text-sm leading-6 text-slate-300">{result.snippet || result.summary || 'No summary available.'}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[result.category, result.sentiment, ...(result.matchedTerms || []).slice(0, 3)].filter(Boolean).map((tag) => (
+              <span key={tag} className="rounded-full border border-white/10 bg-black/24 px-2.5 py-1 text-xs font-bold text-slate-400">{tag}</span>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-black/24 p-4">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <p className="stat-label">Relevance</p>
+              <p className="text-2xl font-black text-white">{Math.round(scores.relevance * 100)}%</p>
+            </div>
+            <Target className="h-6 w-6 text-teal-300" />
+          </div>
+          <MiniBar label="semantic" value={scores.similarity} />
+          <MiniBar label="keyword" value={scores.keywordScore} />
+          <div className="mt-4 flex justify-end">
+            <ArrowRight className="h-5 w-5 text-slate-500" />
+          </div>
+        </div>
+      </div>
+    </button>
   );
 }
 
@@ -253,16 +181,13 @@ function MiniBar({ label, value }) {
   const percent = Math.round(safeNumber(value) * 100);
 
   return (
-    <div>
-      <div className="flex items-center justify-between text-[10px] text-gray-600 mb-1">
+    <div className="mb-2">
+      <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-slate-500">
         <span>{label}</span>
         <span>{percent}%</span>
       </div>
-      <div className="h-1.5 rounded-full bg-black/60 overflow-hidden">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-red-700 to-red-400"
-          style={{ width: `${Math.min(percent, 100)}%` }}
-        />
+      <div className="h-2 overflow-hidden rounded-full bg-slate-900">
+        <div className="h-full rounded-full bg-gradient-to-r from-rose-500 to-teal-300" style={{ width: `${Math.min(percent, 100)}%` }} />
       </div>
     </div>
   );
